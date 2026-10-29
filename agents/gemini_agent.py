@@ -54,7 +54,7 @@ def generate_ai_advisory(sensor_data: dict, vhs_score: int, risk_level: str, fau
         client = genai.Client(api_key=api_key)
         
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-3.6-flash",
             contents=prompt,
         )
         if response and response.text:
