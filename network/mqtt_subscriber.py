@@ -8,9 +8,10 @@ MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "ecowatt/telemetry"
 
-# Explicit absolute path to ensure correct database targeting on Windows / Cloud
+# Explicit absolute path to ensure correct database targeting in root folder
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_DIR = os.path.join(os.path.dirname(BASE_DIR), "database")
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+DB_DIR = os.path.join(PROJECT_ROOT, "database")
 DB_PATH = os.path.join(DB_DIR, "ecowatt.db")
 
 
