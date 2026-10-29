@@ -188,9 +188,10 @@ try:
         record_epoch = latest_dt.timestamp()
         time_diff = current_epoch - record_epoch
 
+        # Strict 15-second heartbeat threshold check
         if time_diff > 15.0 or time_diff < -5.0:
             is_hardware_connected = False
-            # Zero out the entire dataframe so charts flatline cleanly
+            # Zero out the entire dataframe so charts flatline cleanly and metrics show 0
             df["voltage_rms"] = 0.0
             df["current_rms"] = 0.0
             df["active_power"] = 0.0
@@ -206,7 +207,7 @@ except Exception:
     is_hardware_connected = True
 
 # --- ROBUST 48H ENERGY CALCULATION WITH HARDWARE TIMEOUT PROTECTION ---
-if not is_hardware_connected or latest["voltage_rms"] == 0:
+if not is_hardware_connected or latest.get("voltage_rms", 0) == 0:
     energy_48h = 0.0
     carbon_48h = 0.0
 else:
@@ -322,17 +323,17 @@ cost_48h = energy_48h * tariff_unit
 r1_c1, r1_c2, r1_c3, r1_c4, r1_c5, r1_c6 = st.columns(6)
 
 with r1_c1:
-    v_delta = f"{latest['dv_dt']:+.2f} V/s"
+    v_delta = f"{latest.get('dv_dt', 0.0):+.2f} V/s"
     v_class = (
         "badge-neg"
-        if latest["dv_dt"] < -1.0
-        else ("badge-warn" if latest["dv_dt"] > 1.0 else "badge-pos")
+        if latest.get("dv_dt", 0.0) < -1.0
+        else ("badge-warn" if latest.get("dv_dt", 0.0) > 1.0 else "badge-pos")
     )
     st.markdown(
         f"""
         <div class="metric-card">
             <div class="metric-title">Live Voltage</div>
-            <div class="metric-value">{latest['voltage_rms']:.2f} V</div>
+            <div class="metric-value">{latest.get('voltage_rms', 0.0):.2f} V</div>
             <div class="metric-sub {v_class}">{v_delta}</div>
         </div>
     """,
@@ -344,7 +345,7 @@ with r1_c2:
         f"""
         <div class="metric-card">
             <div class="metric-title">Live Current</div>
-            <div class="metric-value">{latest['current_rms']:.2f} A</div>
+            <div class="metric-value">{latest.get('current_rms', 0.0):.2f} A</div>
             <div class="metric-sub badge-pos">Active Load</div>
         </div>
     """,
@@ -356,7 +357,7 @@ with r1_c3:
         f"""
         <div class="metric-card">
             <div class="metric-title">Active Power</div>
-            <div class="metric-value">{latest['active_power']:.1f} W</div>
+            <div class="metric-value">{latest.get('active_power', 0.0):.1f} W</div>
             <div class="metric-sub badge-pos">Real Draw</div>
         </div>
     """,
@@ -392,7 +393,7 @@ with r1_c5:
     )
 
 with r1_c6:
-    vhs = latest["vhs_score"]
+    vhs = latest.get("vhs_score", 0.0)
     vhs_class = (
         "badge-pos"
         if vhs >= 80
@@ -413,8 +414,8 @@ with r1_c6:
 r2_c1, r2_c2, r2_c3, r2_c4, r2_c5 = st.columns(5)
 
 with r2_c1:
-    pred_v = latest["pred_voltage"]
-    pred_delta = pred_v - latest["voltage_rms"]
+    pred_v = latest.get("pred_voltage", 0.0)
+    pred_delta = pred_v - latest.get("voltage_rms", 0.0)
     st.markdown(
         f"""
         <div class="metric-card">
@@ -464,7 +465,7 @@ with r2_c4:
 
 with r2_c5:
     relay_status = (
-        "CLOSED" if latest["fault_flag"] == 0 and is_hardware_connected else "TRIPPED"
+        "CLOSED" if latest.get("fault_flag", 0) == 0 and is_hardware_connected else "TRIPPED"
     )
     relay_style = (
         "relay-closed" if relay_status == "CLOSED" else "relay-open"
@@ -499,13 +500,13 @@ with tab_fault:
         st.error(
             "🔴 **HARDWARE DISCONNECTED / TIMEOUT:** No telemetry packets received from ESP32 edge node in >15s. Safety interlock engaged."
         )
-    elif latest["voltage_rms"] > 230.0 or (0 < latest["voltage_rms"] < 200.0):
+    elif latest.get("voltage_rms", 0.0) > 230.0 or (0 < latest.get("voltage_rms", 0.0) < 200.0):
         st.error(
-            f"⚠️ **CRITICAL VOLTAGE THRESHOLD BREACH:** Measured RMS voltage ({latest['voltage_rms']:.1f}V) violates strict 200V-230V AC safety envelope! Hardware relay latch active."
+            f"⚠️ **CRITICAL VOLTAGE THRESHOLD BREACH:** Measured RMS voltage ({latest.get('voltage_rms', 0.0):.1f}V) violates strict 200V-230V AC safety envelope! Hardware relay latch active."
         )
-    elif abs(latest["dv_dt"]) > 1.5:
+    elif abs(latest.get("dv_dt", 0.0)) > 1.5:
         st.warning(
-            f"⚡ **HIGH TRANSIENT VOLTAGE DRIFT (dV/dt):** Rate of change elevated at **{latest['dv_dt']:+.2f} V/s**. Forward +3s projection: **{latest['pred_voltage']:.2f}V**. Preemptive soft-trip monitoring active."
+            f"⚡ **HIGH TRANSIENT VOLTAGE DRIFT (dV/dt):** Rate of change elevated at **{latest.get('dv_dt', 0.0):+.2f} V/s**. Forward +3s projection: **{latest.get('pred_voltage', 0.0):.2f}V**. Preemptive soft-trip monitoring active."
         )
     else:
         st.success(
@@ -515,8 +516,8 @@ with tab_fault:
 with tab_energy:
     st.info(f"""
     🔋 **Real-Time Active Power & Load Telemetry:**
-    - **Active Real Draw:** `{latest['active_power']:.1f} W` | **RMS Current:** `{latest['current_rms']:.2f} A`
-    - **Grid Frequency:** `{latest['frequency']:.2f} Hz` (Nominal 50Hz Standard)
+    - **Active Real Draw:** `{latest.get('active_power', 0.0):.1f} W` | **RMS Current:** `{latest.get('current_rms', 0.0):.2f} A`
+    - **Grid Frequency:** `{latest.get('frequency', 50.0):.2f} Hz` (Nominal 50Hz Standard)
     - **Accumulated 48-Hour Projection:** `{energy_48h:.4f} kWh` | **Estimated Tariff Cost:** `₹{cost_48h:.2f}` (@ ₹{tariff_unit}/kWh)
     """)
 
@@ -562,25 +563,25 @@ with tab_gemini:
     if st.button("✨ Query Gemini AI Advisor", use_container_width=True):
         with st.spinner("Analyzing high-frequency electrical vectors with Gemini AI..."):
             current_sensor_dict = {
-                "voltage": latest["voltage_rms"],
-                "current": latest["current_rms"],
-                "power": latest["active_power"],
+                "voltage": latest.get("voltage_rms", 0.0),
+                "current": latest.get("current_rms", 0.0),
+                "power": latest.get("active_power", 0.0),
                 "power_factor": latest.get("power_factor", 0.95)
             }
             prediction_dict = {
-                "rate_of_change": latest["dv_dt"],
-                "v_predicted": latest["pred_voltage"],
-                "predicted_fault": "PREDICTED OVER-VOLTAGE" if latest["pred_voltage"] > 230 else ("PREDICTED UNDER-VOLTAGE" if latest["pred_voltage"] < 200 else "NONE"),
-                "action_required": latest["pred_voltage"] > 230 or latest["pred_voltage"] < 200
+                "rate_of_change": latest.get("dv_dt", 0.0),
+                "v_predicted": latest.get("pred_voltage", 0.0),
+                "predicted_fault": "PREDICTED OVER-VOLTAGE" if latest.get("pred_voltage", 0.0) > 230 else ("PREDICTED UNDER-VOLTAGE" if latest.get("pred_voltage", 0.0) < 200 else "NONE"),
+                "action_required": latest.get("pred_voltage", 0.0) > 230 or latest.get("pred_voltage", 0.0) < 200
             }
             
-            risk_lvl = "CRITICAL" if latest["fault_flag"] == 1 else "NORMAL"
-            fault_stat = "TRIPPED" if latest["fault_flag"] == 1 else "NORMAL"
+            risk_lvl = "CRITICAL" if latest.get("fault_flag", 0) == 1 else "NORMAL"
+            fault_stat = "TRIPPED" if latest.get("fault_flag", 0) == 1 else "NORMAL"
 
             if MQTT_IMPORT_SUCCESS:
                 gemini_out = generate_ai_advisory(
                     sensor_data=current_sensor_dict,
-                    vhs_score=int(latest["vhs_score"]),
+                    vhs_score=int(latest.get("vhs_score", 95)),
                     risk_level=risk_lvl,
                     fault_status=fault_stat,
                     prediction=prediction_dict
