@@ -8,6 +8,7 @@ import time
 from dotenv import load_dotenv
 import numpy as np
 import pandas as pd
+import paho.mqtt.client as mqtt
 import paho.mqtt.publish as mqtt_publish
 import plotly.graph_objects as go
 import streamlit as st
@@ -23,20 +24,105 @@ load_dotenv(override=True)
 if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
     os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
 
-# --- AUTOMATIC BACKGROUND MQTT WORKER FOR STREAMLIT CLOUD ---
+# --- CONFIGURATION ---
+MQTT_BROKER = "broker.hivemq.com"
+MQTT_PORT = 1883
+MQTT_TOPIC = "ecowatt/telemetry"
+TOPIC_WIFI_SET = "ecowatt/wifi/update"
+
+# Robust Database Path Setup
+DB_DIR = os.path.join(PROJECT_ROOT, "database")
+if not os.path.exists(DB_DIR):
+    os.makedirs(DB_DIR, exist_ok=True)
+DB_FILE = os.path.join(DB_DIR, "ecowatt.db")
+
+
+# --- EMBEDDED MQTT SUBSCRIBER WORKER FOR STREAMLIT CLOUD ---
+def init_db():
+    """Ensures the database directory and telemetry table exist."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS telemetry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            voltage_rms REAL,
+            current_rms REAL,
+            active_power REAL,
+            frequency REAL,
+            power_factor REAL,
+            dv_dt REAL,
+            vhs_score REAL,
+            fault_flag INTEGER,
+            relay_state TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    if rc == 0:
+        client.subscribe(MQTT_TOPIC)
+
+
+def on_message(client, userdata, msg):
+    try:
+        payload_str = msg.payload.decode("utf-8")
+        data = json.loads(payload_str)
+        
+        v_rms = float(data.get("voltage", data.get("voltage_rms", 215.0)))
+        c_rms = float(data.get("current", data.get("current_rms", 0.0)))
+        p_act = float(data.get("power", data.get("active_power", 0.0)))
+        freq = float(data.get("frequency", 50.0))
+        pf = float(data.get("power_factor", 0.95))
+        dv_dt = float(data.get("dv_dt", 0.0))
+        vhs = float(data.get("vhs_score", data.get("vhs", 95.0)))
+        fault = int(data.get("fault_flag", 0))
+        relay_state = str(data.get("relay_state", "CLOSED"))
+
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                INSERT INTO telemetry (voltage_rms, current_rms, active_power, frequency, power_factor, dv_dt, vhs_score, fault_flag, relay_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (v_rms, c_rms, p_act, freq, pf, dv_dt, vhs, fault, relay_state),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error processing message: {e}")
+
+
+def run_mqtt_background_loop():
+    """Starts the MQTT listener as a blocking routine for background threading."""
+    init_db()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.on_connect = on_connect
+    client.on_message = on_message
+    try:
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.loop_forever()
+    except Exception as e:
+        print(f"MQTT background loop error: {e}")
+
+
 @st.cache_resource
 def initialize_mqtt_background_worker():
-    """Starts the MQTT subscriber thread in the background to capture telemetry."""
+    """Starts the MQTT subscriber thread once in the background."""
     try:
-        from network.mqtt_subscriber import run_mqtt_background_loop
         thread = threading.Thread(target=run_mqtt_background_loop, daemon=True)
         thread.start()
         return "Started Successfully"
     except Exception as e:
         return f"Failed: {e}"
 
+
 # Initialize background MQTT listener on app boot
 mqtt_status = initialize_mqtt_background_worker()
+
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -46,15 +132,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Robust Database Path Setup
-DB_DIR = os.path.join(PROJECT_ROOT, "database")
-if not os.path.exists(DB_DIR):
-    os.makedirs(DB_DIR, exist_ok=True)
-DB_FILE = os.path.join(DB_DIR, "ecowatt.db")
-
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-TOPIC_WIFI_SET = "ecowatt/wifi/update"
 
 # --- CUSTOM CSS ---
 st.markdown(
