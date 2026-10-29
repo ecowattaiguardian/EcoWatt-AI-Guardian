@@ -18,6 +18,11 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# Load environment variables from .env or Streamlit Secrets
+load_dotenv(override=True)
+if "GEMINI_API_KEY" in st.secrets:
+    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
 # Import external modules safely with fallback if running isolated in Streamlit Cloud
 try:
     from agents.gemini_agent import generate_ai_advisory
@@ -42,9 +47,6 @@ def initialize_mqtt_background_worker():
 
 # Initialize background MQTT listener on app boot
 initialize_mqtt_background_worker()
-
-# Load environment variables from .env file if present (with override to ensure fresh load)
-load_dotenv(override=True)
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
