@@ -562,7 +562,8 @@ with tab_gemini:
             risk_lvl = "CRITICAL" if latest.get("fault_flag", 0) == 1 else "NORMAL"
             fault_stat = "TRIPPED" if latest.get("fault_flag", 0) == 1 else "NORMAL"
 
-            if MQTT_IMPORT_SUCCESS:
+            try:
+                from agents.gemini_agent import generate_ai_advisory
                 gemini_out = generate_ai_advisory(
                     sensor_data=current_sensor_dict,
                     vhs_score=int(latest.get("vhs_score", 0)),
@@ -570,8 +571,9 @@ with tab_gemini:
                     fault_status=fault_stat,
                     prediction=prediction_dict
                 )
-            else:
-                gemini_out = "Gemini AI module currently unavailable in isolated cloud environment."
+            except Exception as e:
+                gemini_out = f"⚠️ **Gemini Module Error:** Could not load `agents.gemini_agent` ({e}). Please check your folder structure on GitHub."
+                
             st.session_state["gemini_cache"] = gemini_out
 
     if "gemini_cache" in st.session_state:
