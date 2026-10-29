@@ -1,0 +1,14 @@
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Local Databases & Data
+database/ecowatt.db
+data/telemetry_history.csv
+
+# IDEs
+.vscode/
+.idea/
