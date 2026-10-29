@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import sys
+import threading
 import time
 from dotenv import load_dotenv
 import numpy as np
@@ -17,9 +18,24 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# Import external Gemini AI Agent module & Separate Report Generator safely
+# Import external Gemini AI Agent module, Report Generator, and MQTT Background Loop safely
 from agents.gemini_agent import generate_ai_advisory
 from agents.report_generator import generate_comprehensive_audit_pdf
+from network.mqtt_subscriber import run_mqtt_background_loop
+
+# --- AUTOMATIC BACKGROUND MQTT WORKER FOR STREAMLIT CLOUD ---
+@st.cache_resource
+def initialize_mqtt_background_worker():
+    """Starts the MQTT subscriber thread once in the background of Streamlit Cloud."""
+    try:
+        thread = threading.Thread(target=run_mqtt_background_loop, daemon=True)
+        thread.start()
+        return "Started"
+    except Exception:
+        return "Failed"
+
+# Initialize background MQTT listener on app boot
+initialize_mqtt_background_worker()
 
 # Load environment variables from .env file if present (with override to ensure fresh load)
 load_dotenv(override=True)
