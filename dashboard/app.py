@@ -20,33 +20,23 @@ if PROJECT_ROOT not in sys.path:
 
 # Load environment variables from .env or Streamlit Secrets
 load_dotenv(override=True)
-if "GEMINI_API_KEY" in st.secrets:
+if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
     os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
-
-# Import external modules safely with fallback if running isolated in Streamlit Cloud
-try:
-    from agents.gemini_agent import generate_ai_advisory
-    from agents.report_generator import generate_comprehensive_audit_pdf
-    from network.mqtt_subscriber import run_mqtt_background_loop
-    MQTT_IMPORT_SUCCESS = True
-except ImportError:
-    MQTT_IMPORT_SUCCESS = False
 
 # --- AUTOMATIC BACKGROUND MQTT WORKER FOR STREAMLIT CLOUD ---
 @st.cache_resource
 def initialize_mqtt_background_worker():
-    """Starts the MQTT subscriber thread once in the background if available."""
-    if MQTT_IMPORT_SUCCESS:
-        try:
-            thread = threading.Thread(target=run_mqtt_background_loop, daemon=True)
-            thread.start()
-            return "Started"
-        except Exception:
-            return "Failed"
-    return "Skipped"
+    """Starts the MQTT subscriber thread in the background to capture telemetry."""
+    try:
+        from network.mqtt_subscriber import run_mqtt_background_loop
+        thread = threading.Thread(target=run_mqtt_background_loop, daemon=True)
+        thread.start()
+        return "Started Successfully"
+    except Exception as e:
+        return f"Failed: {e}"
 
 # Initialize background MQTT listener on app boot
-initialize_mqtt_background_worker()
+mqtt_status = initialize_mqtt_background_worker()
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -108,7 +98,7 @@ st.markdown(
 )
 
 
-# --- DATABASE FETCH (NO SIMULATION FALLBACK) ---
+# --- DATABASE FETCH ---
 def fetch_telemetry(limit=40):
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -186,7 +176,7 @@ latest = df.iloc[-1] if not df.empty else {
     "pred_voltage": 0.0, "vhs_score": 0.0, "fault_flag": 1
 }
 
-# --- ROBUST 48H ENERGY CALCULATION WITH HARDWARE TIMEOUT PROTECTION ---
+# --- ROBUST 48H ENERGY CALCULATION ---
 if not is_hardware_connected or latest.get("voltage_rms", 0) == 0:
     energy_48h = 0.0
     carbon_48h = 0.0
@@ -269,9 +259,9 @@ with st.sidebar:
         "Nominal operational state within strict 200V-230V envelope. No severe electrical hazards detected.",
     )
     
-    # Generate comprehensive professional PDF audit report
     pdf_data = None
     try:
+        from agents.report_generator import generate_comprehensive_audit_pdf
         pdf_data = generate_comprehensive_audit_pdf(
             df=df,
             latest=latest,
@@ -280,7 +270,7 @@ with st.sidebar:
             aggregated_kwh=energy_48h,
             aggregated_carbon=carbon_48h
         )
-    except Exception as e:
+    except Exception:
         pdf_data = None
 
     if pdf_data is not None:
@@ -467,7 +457,7 @@ with r2_c5:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- MULTI-AGENT INTELLIGENCE ENGINE (Strict 200V-230V Envelope) ---
+# --- MULTI-AGENT INTELLIGENCE ENGINE ---
 st.markdown("### ⚙ Multi-Agent AI Intelligence Engine")
 
 tab_fault, tab_energy, tab_recom, tab_sust, tab_info, tab_gemini = st.tabs([
@@ -583,7 +573,7 @@ with tab_gemini:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- VISUALIZATION CHARTS (200V - 230V Envelope) ---
+# --- VISUALIZATION CHARTS ---
 col_g1, col_g2 = st.columns(2)
 
 with col_g1:
