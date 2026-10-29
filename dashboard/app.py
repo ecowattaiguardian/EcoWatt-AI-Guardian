@@ -106,7 +106,7 @@ st.markdown(
 )
 
 
-# --- DATABASE FETCH & SOFTWARE PREDICTIVE CALCULATIONS ---
+# --- DATABASE FETCH (NO SIMULATION FALLBACK) ---
 def fetch_telemetry(limit=40):
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -118,11 +118,10 @@ def fetch_telemetry(limit=40):
         if not df.empty:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             if "frequency" not in df.columns:
-                df["frequency"] = 50.0
+                df["frequency"] = 0.0
             if "vhs_score" not in df.columns:
-                df["vhs_score"] = 95.0
+                df["vhs_score"] = 0.0
 
-            # SOFTWARE-DRIVEN PREDICTIVE ENGINE (Calculates dV/dt and +3s Horizon dynamically)
             df = df.sort_values(by="id", ascending=True).reset_index(drop=True)
             if "voltage_rms" in df.columns and len(df) >= 3:
                 voltages = df["voltage_rms"].tolist()
@@ -136,75 +135,54 @@ def fetch_telemetry(limit=40):
             df["pred_voltage"] = df["voltage_rms"] + (df["dv_dt"] * 3.0)
             return df
     except Exception:
-        pass  # Fall back silently if DB is uninitialized
+        pass  
 
-    # Fallback simulation data centered around 215V nominal midpoint (within 200V-230V window)
-    now = datetime.now()
-    times = pd.date_range(end=now, periods=limit, freq="s")
-    base_v = (
-        215.0
-        + np.sin(np.linspace(0, 8, limit)) * 4.0
-        + np.random.normal(0, 0.8, limit)
-    )
-    dv = np.gradient(base_v)
-    pred_v = base_v + (dv * 3.0)
-    currents = np.random.uniform(1.2, 3.4, limit)
-    pf = np.random.uniform(0.90, 0.99, limit)
-    powers = base_v * currents * pf
-
-    return pd.DataFrame({
-        "id": range(1, limit + 1),
-        "timestamp": times,
-        "voltage_rms": base_v,
-        "pred_voltage": pred_v,
-        "current_rms": currents,
-        "active_power": powers,
-        "frequency": np.random.uniform(49.9, 50.1, limit),
-        "power_factor": pf,
-        "dv_dt": dv,
-        "vhs_score": np.clip(
-            100
-            - (
-                np.abs(base_v - 215) * 1.5
-                + np.abs(dv) * 2.0
-                + (1 - pf) * 30
-            ),
-            0,
-            100,
-        ),
-        "fault_flag": [0] * limit,
-    })
+    return pd.DataFrame()
 
 
-# Fetch data and evaluate connection timeout (Heartbeat / Disconnect Check using epoch time)
+# Fetch data and evaluate connection timeout
 df = fetch_telemetry(40)
 
 is_hardware_connected = True
-try:
-    if not df.empty:
-        latest = df.iloc[-1]
-        latest_dt = pd.to_datetime(latest["timestamp"])
-        current_epoch = datetime.now().timestamp()
-        record_epoch = latest_dt.timestamp()
-        time_diff = current_epoch - record_epoch
+if df.empty:
+    is_hardware_connected = False
+    df = pd.DataFrame({
+        "timestamp": [datetime.now()],
+        "voltage_rms": [0.0],
+        "current_rms": [0.0],
+        "active_power": [0.0],
+        "frequency": [0.0],
+        "power_factor": [0.0],
+        "dv_dt": [0.0],
+        "pred_voltage": [0.0],
+        "vhs_score": [0.0],
+        "fault_flag": [1]
+    })
+else:
+    latest = df.iloc[-1]
+    latest_dt = pd.to_datetime(latest["timestamp"])
+    current_epoch = datetime.now().timestamp()
+    record_epoch = latest_dt.timestamp()
+    time_diff = current_epoch - record_epoch
 
-        # Strict 15-second heartbeat threshold check
-        if time_diff > 15.0 or time_diff < -5.0:
-            is_hardware_connected = False
-            # Zero out the entire dataframe so charts flatline cleanly and metrics show 0
-            df["voltage_rms"] = 0.0
-            df["current_rms"] = 0.0
-            df["active_power"] = 0.0
-            df["frequency"] = 0.0
-            df["power_factor"] = 0.0
-            df["pred_voltage"] = 0.0
-            df["dv_dt"] = 0.0
-            df["vhs_score"] = 0.0
-            df["fault_flag"] = 1
+    # Strict 15-second heartbeat threshold check
+    if time_diff > 15.0 or time_diff < -5.0:
+        is_hardware_connected = False
+        df["voltage_rms"] = 0.0
+        df["current_rms"] = 0.0
+        df["active_power"] = 0.0
+        df["frequency"] = 0.0
+        df["power_factor"] = 0.0
+        df["pred_voltage"] = 0.0
+        df["dv_dt"] = 0.0
+        df["vhs_score"] = 0.0
+        df["fault_flag"] = 1
 
-    latest = df.iloc[-1] if not df.empty else {}
-except Exception:
-    is_hardware_connected = True
+latest = df.iloc[-1] if not df.empty else {
+    "voltage_rms": 0.0, "current_rms": 0.0, "active_power": 0.0, 
+    "frequency": 0.0, "power_factor": 0.0, "dv_dt": 0.0, 
+    "pred_voltage": 0.0, "vhs_score": 0.0, "fault_flag": 1
+}
 
 # --- ROBUST 48H ENERGY CALCULATION WITH HARDWARE TIMEOUT PROTECTION ---
 if not is_hardware_connected or latest.get("voltage_rms", 0) == 0:
@@ -217,7 +195,6 @@ else:
     else:
         avg_power_watts = 0.0
 
-    # Maintain persistent memory so resets don't wipe out energy metrics to zero when active
     if avg_power_watts > 0.1:
         st.session_state["persistent_avg_power"] = avg_power_watts
     else:
@@ -290,7 +267,6 @@ with st.sidebar:
         "Nominal operational state within strict 200V-230V envelope. No severe electrical hazards detected.",
     )
     
-    # Call the separate report module function safely if available
     if MQTT_IMPORT_SUCCESS:
         pdf_data = generate_comprehensive_audit_pdf(
             df=df,
@@ -365,7 +341,7 @@ with r1_c3:
     )
 
 with r1_c4:
-    freq_val = latest.get("frequency", 50.0)
+    freq_val = latest.get("frequency", 0.0)
     freq_class = "badge-pos" if (49.8 <= freq_val <= 50.2 and freq_val > 0) else "badge-warn"
     st.markdown(
         f"""
@@ -379,7 +355,7 @@ with r1_c4:
     )
 
 with r1_c5:
-    pf_val = latest.get("power_factor", 0.95)
+    pf_val = latest.get("power_factor", 0.0)
     pf_class = "badge-pos" if (pf_val >= 0.90 and pf_val > 0) else "badge-warn"
     st.markdown(
         f"""
@@ -517,14 +493,16 @@ with tab_energy:
     st.info(f"""
     🔋 **Real-Time Active Power & Load Telemetry:**
     - **Active Real Draw:** `{latest.get('active_power', 0.0):.1f} W` | **RMS Current:** `{latest.get('current_rms', 0.0):.2f} A`
-    - **Grid Frequency:** `{latest.get('frequency', 50.0):.2f} Hz` (Nominal 50Hz Standard)
+    - **Grid Frequency:** `{latest.get('frequency', 0.0):.2f} Hz` (Nominal 50Hz Standard)
     - **Accumulated 48-Hour Projection:** `{energy_48h:.4f} kWh` | **Estimated Tariff Cost:** `₹{cost_48h:.2f}` (@ ₹{tariff_unit}/kWh)
     """)
 
 with tab_recom:
-    pf_check = latest.get("power_factor", 0.95)
-    v_check = latest.get("voltage_rms", 215.0)
-    if pf_check < 0.90 and pf_check > 0:
+    pf_check = latest.get("power_factor", 0.0)
+    v_check = latest.get("voltage_rms", 0.0)
+    if not is_hardware_connected:
+        st.warning("💡 **System Offline:** Reconnect hardware node to resume automated load distribution recommendations.")
+    elif pf_check < 0.90 and pf_check > 0:
         st.warning(
             f"💡 **Power Factor Correction Required ({pf_check:.2f}):** Inductive phase lag detected across distribution lines. Integrating automated shunt capacitor bank compensation will eliminate reactive power penalties."
         )
@@ -536,8 +514,6 @@ with tab_recom:
         st.warning(
             f"💡 **Overvoltage Suppression ({v_check:.1f}V):** Line voltage exceeding upper 230V limit. Semiconductor protection interlocks primed."
         )
-    elif not is_hardware_connected:
-        st.warning("💡 **System Offline:** Reconnect hardware node to resume automated load distribution recommendations.")
     else:
         st.success(
             f"💡 **Optimal Power Distribution:** Voltage ({v_check:.1f}V) and Power Factor ({pf_check:.2f}) operating at peak efficiency within the 200V-230V window. No immediate load shedding required."
@@ -566,7 +542,7 @@ with tab_gemini:
                 "voltage": latest.get("voltage_rms", 0.0),
                 "current": latest.get("current_rms", 0.0),
                 "power": latest.get("active_power", 0.0),
-                "power_factor": latest.get("power_factor", 0.95)
+                "power_factor": latest.get("power_factor", 0.0)
             }
             prediction_dict = {
                 "rate_of_change": latest.get("dv_dt", 0.0),
@@ -581,7 +557,7 @@ with tab_gemini:
             if MQTT_IMPORT_SUCCESS:
                 gemini_out = generate_ai_advisory(
                     sensor_data=current_sensor_dict,
-                    vhs_score=int(latest.get("vhs_score", 95)),
+                    vhs_score=int(latest.get("vhs_score", 0)),
                     risk_level=risk_lvl,
                     fault_status=fault_stat,
                     prediction=prediction_dict
