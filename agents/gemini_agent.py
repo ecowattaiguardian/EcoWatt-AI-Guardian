@@ -9,12 +9,15 @@ load_dotenv(override=True)
 def generate_ai_advisory(sensor_data: dict, vhs_score: int, risk_level: str, fault_status: str, prediction: dict) -> str:
     """
     Generates a rich, fancy, highly informative multi-section electrical intelligence report
-    using Google Gemini Flash.
+    using Google Gemini.
     """
+    # Check environment variables first, then fallback to Streamlit secrets if available
     api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key and hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
 
     if not api_key:
-        return "⚠️ **GEMINI API ERROR:** API key missing from environment variables or configuration."
+        return "⚠️ **GEMINI API ERROR:** API key missing from environment variables or Streamlit secrets."
 
     voltage_val = sensor_data.get('voltage', sensor_data.get('voltage_rms', 215.0))
     current_val = sensor_data.get('current', sensor_data.get('current_rms', 0.0))
@@ -54,7 +57,7 @@ def generate_ai_advisory(sensor_data: dict, vhs_score: int, risk_level: str, fau
         client = genai.Client(api_key=api_key)
         
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
         )
         if response and response.text:
