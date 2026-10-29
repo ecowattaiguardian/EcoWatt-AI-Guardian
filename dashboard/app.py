@@ -267,45 +267,24 @@ with st.sidebar:
         "Nominal operational state within strict 200V-230V envelope. No severe electrical hazards detected.",
     )
     
-    # Generate PDF safely with module check and fallback
-    pdf_data = None
     if MQTT_IMPORT_SUCCESS:
-        try:
-            pdf_data = generate_comprehensive_audit_pdf(
-                df=df,
-                latest=latest,
-                gemini_summary=gemini_summary,
-                tariff_rate=tariff_unit,
-                aggregated_kwh=energy_48h,
-                aggregated_carbon=carbon_48h
-            )
-        except Exception:
-            pdf_data = None
-
-    if pdf_data is None:
-        from io import BytesIO
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
-        
-        buffer = BytesIO()
-        c = canvas.Canvas(buffer, pagesize=letter)
-        c.drawString(50, 750, "EcoWatt AI Guardian - Power Audit Report")
-        c.drawString(50, 730, f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        c.drawString(50, 700, f"Voltage: {latest.get('voltage_rms', 0.0):.2f} V")
-        c.drawString(50, 680, f"Current: {latest.get('current_rms', 0.0):.2f} A")
-        c.drawString(50, 660, f"Active Power: {latest.get('active_power', 0.0):.1f} W")
-        c.drawString(50, 640, f"Energy (48h): {energy_48h:.4f} kWh")
-        c.drawString(50, 620, f"Summary: {gemini_summary}")
-        c.save()
-        pdf_data = buffer.getvalue()
-
-    st.download_button(
-        label="⚙ Compile Audit PDF",
-        data=pdf_data,
-        file_name=f"EcoWatt_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-        mime="application/pdf",
-        use_container_width=True,
-    )
+        pdf_data = generate_comprehensive_audit_pdf(
+            df=df,
+            latest=latest,
+            gemini_summary=gemini_summary,
+            tariff_rate=tariff_unit,
+            aggregated_kwh=energy_48h,
+            aggregated_carbon=carbon_48h
+        )
+        st.download_button(
+            label="⚙ Compile Audit PDF",
+            data=pdf_data,
+            file_name=f"EcoWatt_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    else:
+        st.caption("PDF reporting module loading...")
 
 
 # --- MAIN DASHBOARD INTERFACE ---
