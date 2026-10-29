@@ -18,21 +18,27 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# Import external Gemini AI Agent module, Report Generator, and MQTT Background Loop safely
-from agents.gemini_agent import generate_ai_advisory
-from agents.report_generator import generate_comprehensive_audit_pdf
-from network.mqtt_subscriber import run_mqtt_background_loop
+# Import external modules safely with fallback if running isolated in Streamlit Cloud
+try:
+    from agents.gemini_agent import generate_ai_advisory
+    from agents.report_generator import generate_comprehensive_audit_pdf
+    from network.mqtt_subscriber import run_mqtt_background_loop
+    MQTT_IMPORT_SUCCESS = True
+except ImportError:
+    MQTT_IMPORT_SUCCESS = False
 
 # --- AUTOMATIC BACKGROUND MQTT WORKER FOR STREAMLIT CLOUD ---
 @st.cache_resource
 def initialize_mqtt_background_worker():
-    """Starts the MQTT subscriber thread once in the background of Streamlit Cloud."""
-    try:
-        thread = threading.Thread(target=run_mqtt_background_loop, daemon=True)
-        thread.start()
-        return "Started"
-    except Exception:
-        return "Failed"
+    """Starts the MQTT subscriber thread once in the background if available."""
+    if MQTT_IMPORT_SUCCESS:
+        try:
+            thread = threading.Thread(target=run_mqtt_background_loop, daemon=True)
+            thread.start()
+            return "Started"
+        except Exception:
+            return "Failed"
+    return "Skipped"
 
 # Initialize background MQTT listener on app boot
 initialize_mqtt_background_worker()
@@ -283,23 +289,25 @@ with st.sidebar:
         "Nominal operational state within strict 200V-230V envelope. No severe electrical hazards detected.",
     )
     
-    # Call the separate report module function
-    pdf_data = generate_comprehensive_audit_pdf(
-        df=df,
-        latest=latest,
-        gemini_summary=gemini_summary,
-        tariff_rate=tariff_unit,
-        aggregated_kwh=energy_48h,
-        aggregated_carbon=carbon_48h
-    )
-    
-    st.download_button(
-        label="⚙ Compile Audit PDF",
-        data=pdf_data,
-        file_name=f"EcoWatt_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-        mime="application/pdf",
-        use_container_width=True,
-    )
+    # Call the separate report module function safely if available
+    if MQTT_IMPORT_SUCCESS:
+        pdf_data = generate_comprehensive_audit_pdf(
+            df=df,
+            latest=latest,
+            gemini_summary=gemini_summary,
+            tariff_rate=tariff_unit,
+            aggregated_kwh=energy_48h,
+            aggregated_carbon=carbon_48h
+        )
+        st.download_button(
+            label="⚙ Compile Audit PDF",
+            data=pdf_data,
+            file_name=f"EcoWatt_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    else:
+        st.caption("PDF reporting module loading...")
 
 
 # --- MAIN DASHBOARD INTERFACE ---
@@ -569,13 +577,16 @@ with tab_gemini:
             risk_lvl = "CRITICAL" if latest["fault_flag"] == 1 else "NORMAL"
             fault_stat = "TRIPPED" if latest["fault_flag"] == 1 else "NORMAL"
 
-            gemini_out = generate_ai_advisory(
-                sensor_data=current_sensor_dict,
-                vhs_score=int(latest["vhs_score"]),
-                risk_level=risk_lvl,
-                fault_status=fault_stat,
-                prediction=prediction_dict
-            )
+            if MQTT_IMPORT_SUCCESS:
+                gemini_out = generate_ai_advisory(
+                    sensor_data=current_sensor_dict,
+                    vhs_score=int(latest["vhs_score"]),
+                    risk_level=risk_lvl,
+                    fault_status=fault_stat,
+                    prediction=prediction_dict
+                )
+            else:
+                gemini_out = "Gemini AI module currently unavailable in isolated cloud environment."
             st.session_state["gemini_cache"] = gemini_out
 
     if "gemini_cache" in st.session_state:
