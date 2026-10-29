@@ -267,15 +267,23 @@ with st.sidebar:
         "Nominal operational state within strict 200V-230V envelope. No severe electrical hazards detected.",
     )
     
+    # Generate comprehensive professional PDF audit report
+    pdf_data = None
     if MQTT_IMPORT_SUCCESS:
-        pdf_data = generate_comprehensive_audit_pdf(
-            df=df,
-            latest=latest,
-            gemini_summary=gemini_summary,
-            tariff_rate=tariff_unit,
-            aggregated_kwh=energy_48h,
-            aggregated_carbon=carbon_48h
-        )
+        try:
+            pdf_data = generate_comprehensive_audit_pdf(
+                df=df,
+                latest=latest,
+                gemini_summary=gemini_summary,
+                tariff_rate=tariff_unit,
+                aggregated_kwh=energy_48h,
+                aggregated_carbon=carbon_48h
+            )
+        except Exception as e:
+            st.error(f"PDF Generation Error: {e}")
+            pdf_data = None
+
+    if pdf_data is not None:
         st.download_button(
             label="⚙ Compile Audit PDF",
             data=pdf_data,
@@ -284,7 +292,7 @@ with st.sidebar:
             use_container_width=True,
         )
     else:
-        st.caption("PDF reporting module loading...")
+        st.caption("PDF module loading or unavailable.")
 
 
 # --- MAIN DASHBOARD INTERFACE ---
